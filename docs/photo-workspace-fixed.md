@@ -103,3 +103,64 @@ photo develop engine before it exists.
 8. Ensure GIMP's conventional docks are restored on exiting Photo workspace.
 
 Build success is not proof of these UI/runtime assertions.
+
+## Photo-first layout (second UI milestone)
+
+The fork now opens **Photo workspace by default**. Set
+`GIMP_START_STANDARD=1` in the environment before launching the editor
+to use the conventional interface at startup; users can switch at any
+time with **Standard GIMP** / **Photo workspace**.
+
+The photographic window now contains:
+- A dark, dedicated top bar with native Open, Edit and Export actions.
+- A fixed 82 px left tool rail with Open, Light, Fit and Save actions.
+- The existing image canvas in the center.
+- The fixed 312 px right panel and non-destructive Light sliders.
+
+The traditional menubar is hidden **only** while Photo workspace is
+active, and restored when switching back. Existing dock panes are
+preserved in memory; nothing can be detached from the photo layout.
+
+All toolbar/rail buttons call existing GIMP actions; they are not
+decorative mockups. Light focuses the Exposure slider.
+
+### Additional manual checks
+
+- Launch the fork and verify Photo mode is initially active.
+- Verify **Standard GIMP** restores the original menubar and both dock
+  columns; re-enter Photo workspace and verify it hides docks again.
+- Verify **Open**, **Export**, **Save**, **Fit**, and **Light** controls.
+- Confirm that resizing the window does not detach either fixed panel.
+- Test `GIMP_START_STANDARD=1` for developers.
+- Test Gtk3 CSS in light and dark desktop themes and on HiDPI screens.
+
+## Photo workspace refinements (third iteration)
+
+- After opening an image or refreshing the canvas, display-shell appearance
+  changes must **not** reveal GIMP's legacy menubar over photo mode.
+- The `Color` expander is now functional:
+  - **Saturation:** neutral slider zero maps to GEGL `gegl:saturation`
+    scale 1.0, range -100 to +100 maps to scale 0..2.
+  - **Temperature:** neutral zero assumes a 6500K source and maps to GEGL
+    `gegl:color-temperature` with intended 6500 − slider * 45 Kelvin.
+    This is an **approximate warmth control**, not camera white balance
+    or a Lightroom-compatible RAW white-balance implementation.
+- Apply and Cancel in Color and Light operate on the **same preview
+  transaction**; they commit or revert all pending Light/Color adjustments.
+- The editing sidebar's explanatory text is shorter to preserve space.
+
+### Tests required for the Color milestone
+
+1. Open a color image with one editable RGB layer.
+2. Slide Saturation down to -100 and back to 0; check grayscale/normal
+   preview. Increase above zero and confirm increased saturation.
+3. Slide Temperature in both directions and verify warmer/cooler tones.
+4. Change both Light and Color controls; Apply then undo/redo the full
+   change with one history step.
+5. Change both; Cancel and verify original pixels are unchanged.
+6. Open another image and verify there is no stale preview.
+7. Verify original GIMP menu remains hidden in Photo mode after loading
+   an image and changing zoom, while it reappears in Standard GIMP.
+
+Source compilation alone does not prove all seven behaviors; validate
+these in a graphical session before upgrading from experimental.
