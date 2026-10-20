@@ -57,7 +57,13 @@ if [[ "$FORMAT" == "appimage" ]]; then
   # Reuse the bundler maintained in this GIMP source tree.
   # It installs and packs the runtime plus plug-ins into AppDir.
   export GITLAB_CI=1
+  # Upstream runs the bundling and squashing as two separate CI jobs.
+  # In a fresh checkout the script snapshots supported_archs before it
+  # creates AppDir-*, so a single call does NOT generate an AppImage.
+  sh build/linux/appimage/3_dist-gimp-goappimage.sh --bundle-only
+  test -d "AppDir-$(uname -m)"
   sh build/linux/appimage/3_dist-gimp-goappimage.sh
+  test -d build/linux/appimage/_Output
   find build/linux/appimage/_Output -maxdepth 1 -name '*.AppImage' \
     -exec cp -v '{}' dist/ \;
   test -n "$(find dist -maxdepth 1 -name '*.AppImage' -print -quit)"
