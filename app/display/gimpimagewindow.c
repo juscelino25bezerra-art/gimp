@@ -159,11 +159,11 @@ struct _GimpImageWindowPrivate
   GtkWidget         *photo_light_expander;
   gboolean           photo_menubar_was_visible;
   gboolean           photo_mode;
-  GtkWidget         *photo_controls[4];
+  GtkWidget         *photo_controls[6];
   GtkWidget         *photo_feedback;
   GimpImage         *photo_image;
   GimpDrawable      *photo_drawable;
-  GimpDrawableFilter *photo_filters[3];
+  GimpDrawableFilter *photo_filters[5];
   gboolean           photo_resetting;
 
   GHashTable        *pad_controllers;
@@ -260,6 +260,7 @@ static void      gimp_image_window_photo_mode_toggled  (GtkToggleButton     *but
 static GtkWidget *gimp_image_window_photo_group_new    (const gchar         *title,
                                                         gboolean             expanded);
 static GtkWidget *gimp_image_window_photo_light_new    (GimpImageWindow     *window);
+static GtkWidget *gimp_image_window_photo_color_new    (GimpImageWindow     *window);
 static GtkWidget *gimp_image_window_photo_action_new   (const gchar         *label,
                                                         const gchar         *group,
                                                         const gchar         *action,
@@ -809,8 +810,7 @@ gimp_image_window_constructed (GObject *object)
     GtkWidget *sections = gtk_box_new (GTK_ORIENTATION_VERTICAL, 14);
     GtkWidget *heading  = gtk_label_new (_("Edit"));
     GtkWidget *note     = gtk_label_new (
-      _("Fixed photographic workspace. Adjust the selected layer with the "
-        "controls below, then Apply or Cancel."));
+      _("Preview your edits on the selected layer. Apply to keep them."));
 
     gtk_container_set_border_width (GTK_CONTAINER (sections), 18);
     gtk_style_context_add_class (gtk_widget_get_style_context (sections),
@@ -826,7 +826,7 @@ gimp_image_window_constructed (GObject *object)
                         gimp_image_window_photo_light_new (window),
                         FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (sections),
-                        gimp_image_window_photo_group_new (_("Color"), FALSE),
+                        gimp_image_window_photo_color_new (window),
                         FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (sections),
                         gimp_image_window_photo_group_new (_("Effects"), FALSE),
@@ -1893,7 +1893,14 @@ gimp_image_window_set_show_menubar (GimpImageWindow *window,
   private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
 
   if (private->menubar)
-    gtk_widget_set_visible (private->menubar, show);
+    {
+      /* The display shell refreshes its appearance after image and tool
+       * changes. Do not let it expose the old menu in Photo workspace. */
+      if (private->photo_mode)
+        private->photo_menubar_was_visible = show;
+      gtk_widget_set_visible (private->menubar,
+                              show && ! private->photo_mode);
+    }
 }
 
 gboolean
@@ -2441,7 +2448,7 @@ gimp_image_window_photo_abort (GimpImageWindow *window)
   GimpImageWindowPrivate *private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
   gint                    i;
 
-  for (i = 0; i < 3; i++)
+  for (i = 0; i < 5; i++)
     {
       if (private->photo_filters[i])
         {
@@ -2464,7 +2471,7 @@ gimp_image_window_photo_reset (GimpImageWindow *window)
   gint                    i;
 
   private->photo_resetting = TRUE;
-  for (i = 0; i < 4; i++)
+  for (i = 0; i < 6; i++)
     if (private->photo_controls[i])
       gtk_range_set_value (GTK_RANGE (private->photo_controls[i]), 0.0);
   private->photo_resetting = FALSE;
@@ -2488,17 +2495,19 @@ gimp_image_window_photo_adjust_changed (GtkRange        *range,
   gdouble                 amount;
   GeglNode               *node;
   static const gchar * const operations[] =
-    { "gegl:exposure", "gegl:brightness-contrast", "gegl:shadows-highlights" };
+    { "gegl:exposure", "gegl:brightness-contrast", "gegl:shadows-highlights",
+      "gegl:saturation", "gegl:color-temperature" };
   static const gchar * const names[] =
-    { N_("Photo exposure"), N_("Photo contrast"), N_("Photo shadows and highlights") };
+    { N_("Photo exposure"), N_("Photo contrast"), N_("Photo shadows and highlights"),
+      N_("Photo saturation"), N_("Photo temperature") };
 
   if (private->photo_resetting || ! private->photo_mode)
     return;
 
-  for (index = 0; index < 4; index++)
+  for (index = 0; index < 6; index++)
     if (private->photo_controls[index] == GTK_WIDGET (range))
       break;
-  if (index == 4)
+  if (index == 6)
     return;
 
   shell = gimp_image_window_get_active_shell (window);
@@ -2530,7 +2539,7 @@ gimp_image_window_photo_adjust_changed (GtkRange        *range,
       gimp_image_window_photo_abort (window);
       /* The currently moved control remains, but old previews are reset. */
       private->photo_resetting = TRUE;
-      for (gint i = 0; i < 4; i++)
+      for (gint i = 0; i < 6; i++)
         if (i != index)
           gtk_range_set_value (GTK_RANGE (private->photo_controls[i]), 0.0);
       private->photo_resetting = FALSE;
@@ -2543,7 +2552,7 @@ gimp_image_window_photo_adjust_changed (GtkRange        *range,
     }
   g_list_free (selected);
 
-  kind   = (index < 2) ? index : 2;
+  kind   = index < 2 ? index : (index < 4 ? 2 : index - 1);
   amount = gtk_range_get_value (range);
 
   if (! private->photo_filters[kind])
@@ -2573,11 +2582,21 @@ gimp_image_window_photo_adjust_changed (GtkRange        *range,
     gegl_node_set (node, "exposure", amount, NULL);
   else if (kind == 1)
     gegl_node_set (node, "contrast", 1.0 + amount / 100.0, NULL);
-  else
+  else if (kind == 2)
     gegl_node_set (node,
                    "highlights", gtk_range_get_value (GTK_RANGE (private->photo_controls[2])),
                    "shadows",    gtk_range_get_value (GTK_RANGE (private->photo_controls[3])),
                    NULL);
+  else if (kind == 3)
+    gegl_node_set (node, "scale", 1.0 + amount / 100.0, NULL);
+  else
+    {
+      /* Neutral midpoint 6500K; slider is perceptual, not raw Kelvin. */
+      gegl_node_set (node,
+                     "original-temperature", 6500.0,
+                     "intended-temperature", 6500.0 - amount * 45.0,
+                     NULL);
+    }
 
   gimp_drawable_filter_apply (private->photo_filters[kind], NULL);
   gimp_projection_flush (gimp_image_get_projection (image));
@@ -2618,7 +2637,7 @@ gimp_image_window_photo_apply (GtkButton       *button,
   gimp_image_undo_group_start (image, GIMP_UNDO_GROUP_DRAWABLE,
                                _("Photo adjustments"));
 
-  for (i = 0; i < 3; i++)
+  for (i = 0; i < 5; i++)
     if (private->photo_filters[i])
       {
         GimpDrawableFilter *filter = private->photo_filters[i];
@@ -2710,6 +2729,51 @@ gimp_image_window_photo_light_new (GimpImageWindow *window)
   gtk_expander_set_expanded (GTK_EXPANDER (group), TRUE);
   private->photo_light_expander = group;
 
+  return group;
+}
+
+/* Color adjustments share the same pending preview session and Apply/Cancel
+ * actions as Light. The panel remains a fixed non-dock GtkExpander. */
+static GtkWidget *
+gimp_image_window_photo_color_new (GimpImageWindow *window)
+{
+  GimpImageWindowPrivate *private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
+  GtkWidget              *group = gtk_expander_new (_("Color"));
+  GtkWidget              *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
+  GtkWidget              *buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget              *apply = gtk_button_new_with_label (_("Apply"));
+  GtkWidget              *cancel = gtk_button_new_with_label (_("Cancel"));
+  static const gchar * const labels[] =
+    { N_("Saturation"), N_("Temperature (warm / cool)") };
+
+  gtk_widget_set_margin_top (box, 12);
+  gtk_widget_set_margin_bottom (box, 8);
+
+  for (gint i = 0; i < 2; i++)
+    {
+      GtkWidget *label = gtk_label_new (_(labels[i]));
+      GtkWidget *scale = gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL,
+                                                   -100.0, 100.0, 1.0);
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_scale_set_draw_value (GTK_SCALE (scale), TRUE);
+      gtk_scale_set_digits (GTK_SCALE (scale), 0);
+      gtk_range_set_value (GTK_RANGE (scale), 0.0);
+      private->photo_controls[4 + i] = scale;
+      gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
+      gtk_box_pack_start (GTK_BOX (box), scale, FALSE, FALSE, 0);
+      g_signal_connect (scale, "value-changed",
+                        G_CALLBACK (gimp_image_window_photo_adjust_changed),
+                        window);
+    }
+
+  gtk_box_pack_start (GTK_BOX (buttons), apply, TRUE, TRUE, 0);
+  gtk_box_pack_start (GTK_BOX (buttons), cancel, TRUE, TRUE, 0);
+  g_signal_connect (apply, "clicked",
+                    G_CALLBACK (gimp_image_window_photo_apply), window);
+  g_signal_connect (cancel, "clicked",
+                    G_CALLBACK (gimp_image_window_photo_cancel), window);
+  gtk_box_pack_start (GTK_BOX (box), buttons, FALSE, FALSE, 0);
+  gtk_container_add (GTK_CONTAINER (group), box);
   return group;
 }
 
