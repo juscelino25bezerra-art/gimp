@@ -155,6 +155,7 @@ struct _GimpImageWindowPrivate
   GtkWidget         *photo_sidebar;
   GtkWidget         *photo_rail;
   GtkWidget         *photo_nav_actions;
+  GtkWidget         *photo_toggle;
   GtkWidget         *photo_light_expander;
   gboolean           photo_menubar_was_visible;
   gboolean           photo_mode;
@@ -682,6 +683,7 @@ gimp_image_window_constructed (GObject *object)
 
     gtk_box_pack_end (GTK_BOX (private->photo_toolbar),
                       toggle, FALSE, FALSE, 0);
+    private->photo_toggle = toggle;
     g_signal_connect (toggle, "toggled",
                       G_CALLBACK (gimp_image_window_photo_mode_toggled),
                       window);
@@ -860,6 +862,15 @@ gimp_image_window_constructed (GObject *object)
                                     NULL /*new_display*/,
                                     gimp_image_window_config_to_entry_id (config),
                                     private->initial_monitor);
+
+  /*
+   * This fork is a photo-first editor. Start in the non-detachable
+   * photographic workspace by default, while retaining one-click access to
+   * conventional GIMP. GIMP_START_STANDARD=1 opts out for debugging.
+   */
+  if (g_strcmp0 (g_getenv ("GIMP_START_STANDARD"), "1") != 0)
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (private->photo_toggle),
+                                  TRUE);
 
   private->pad_controllers =
     g_hash_table_new_full (NULL, NULL, NULL, g_object_unref);
