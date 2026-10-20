@@ -28,4 +28,4 @@ case "$FORMAT" in
     exit 2
     ;;
 esac
-sha256sum -c dist/SHA256SUMS
+(cd dist && sha256sum -c SHA256SUMS)
