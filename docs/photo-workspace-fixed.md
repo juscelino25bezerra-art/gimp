@@ -103,3 +103,33 @@ photo develop engine before it exists.
 8. Ensure GIMP's conventional docks are restored on exiting Photo workspace.
 
 Build success is not proof of these UI/runtime assertions.
+
+## Photo-first layout (second UI milestone)
+
+The fork now opens **Photo workspace by default**. Set
+`GIMP_START_STANDARD=1` in the environment before launching the editor
+to use the conventional interface at startup; users can switch at any
+time with **Standard GIMP** / **Photo workspace**.
+
+The photographic window now contains:
+- A dark, dedicated top bar with native Open, Edit and Export actions.
+- A fixed 82 px left tool rail with Open, Light, Fit and Save actions.
+- The existing image canvas in the center.
+- The fixed 312 px right panel and non-destructive Light sliders.
+
+The traditional menubar is hidden **only** while Photo workspace is
+active, and restored when switching back. Existing dock panes are
+preserved in memory; nothing can be detached from the photo layout.
+
+All toolbar/rail buttons call existing GIMP actions; they are not
+decorative mockups. Light focuses the Exposure slider.
+
+### Additional manual checks
+
+- Launch the fork and verify Photo mode is initially active.
+- Verify **Standard GIMP** restores the original menubar and both dock
+  columns; re-enter Photo workspace and verify it hides docks again.
+- Verify **Open**, **Export**, **Save**, **Fit**, and **Light** controls.
+- Confirm that resizing the window does not detach either fixed panel.
+- Test `GIMP_START_STANDARD=1` for developers.
+- Test Gtk3 CSS in light and dark desktop themes and on HiDPI screens.
