@@ -63,7 +63,43 @@ notes that editing controls are not yet wired.
 - [x] Expander order fixed
 - [x] Original GIMP docks can be restored by toggling back
 - [ ] Tested on the actual built GTK3 application
-- [ ] Live exposure and contrast controls
+- [x] Live exposure/contrast/shadows/highlights controls (pending CI and manual QA)
 - [ ] Unified tool rail and photo thumbnail navigation
 - [ ] Persistent photo-workspace preference
 - [ ] Color/typography refinements and narrow-screen behavior tested
+
+## Live Light controls — current experimental behavior
+
+In the optional **Photo workspace** mode, the fixed right sidebar's **Light**
+section offers Exposure (EV), Contrast, Highlights and Shadows.
+
+- Select **one editable, unlocked, non-indexed layer** in an open image.
+- Moving a slider attaches a GEGL filter to that layer and updates the canvas
+  immediately. Contrast maps a -80..100 user-facing slider to the GEGL
+  `brightness-contrast` scale factor 0.2..2.0. Exposure uses photographic
+  stops (-5..5); highlights/shadows use GEGL's -100..100 scale.
+- **Apply** confirms non-destructive layer filters, then resets the sliders.
+  The changes remain in the image's filter stack and are included in the GIMP
+  undo history.
+- **Cancel** aborts the live filter preview and resets sliders.
+- Switching images or leaving photo mode cancels an unconfirmed preview.
+- If the selected layer changes before Apply, the old preview is cancelled
+  instead of editing an unintended layer.
+
+This initial interaction is **Apply/Cancel**, not Lightroom's persistent
+per-photo slider settings; already-applied filters are edited from the GIMP
+filter stack for now. This avoids pretending to support a parameter-persistent
+photo develop engine before it exists.
+
+### Manual acceptance tests (still required)
+
+1. Open a JPEG/PNG with a single unlocked RGB layer.
+2. Enable **Photo workspace**.
+3. Move Exposure and verify preview changes without any floating dialog.
+4. Move Contrast and Shadows/Highlights; verify the canvas reflects all effects.
+5. Select Cancel; verify the image returns to its previous appearance.
+6. Repeat, click Apply, then use Undo/Redo and verify filter removal/restore.
+7. Switch tabs with a preview active; check the abandoned preview is cleared.
+8. Ensure GIMP's conventional docks are restored on exiting Photo workspace.
+
+Build success is not proof of these UI/runtime assertions.

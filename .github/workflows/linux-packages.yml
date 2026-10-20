@@ -2,6 +2,12 @@ name: Linux test packages
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish an experimental GitHub pre-release (master only)'
+        type: boolean
+        required: false
+        default: false
   push:
     branches:
       - master
@@ -105,3 +111,75 @@ jobs:
             gegl/_build/meson-logs/**
           if-no-files-found: ignore
           retention-days: 7
+
+  release-preview:
+    name: Publish experimental Linux pre-release
+    needs: packages
+    runs-on: ubuntu-24.04
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-photo-preview]')) ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+      )
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch tested AppImage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gimp-photo-appimage-x86_64
+          path: fetched/appimage
+      - name: Fetch tested Debian artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gimp-photo-deb-x86_64
+          path: fetched/deb
+      - name: Prepare release packages and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          appimages=(fetched/appimage/*.AppImage)
+          debs=(fetched/deb/*.deb)
+          (( ${#appimages[@]} == 1 )) || { echo "AppImage artifact missing or ambiguous" >&2; exit 1; }
+          (( ${#debs[@]} == 1 )) || { echo "Debian artifact missing or ambiguous" >&2; exit 1; }
+          mkdir -p release-files
+          cp -v "${appimages[0]}" "${debs[0]}" release-files/
+          (cd release-files && sha256sum -- *.AppImage *.deb > SHA256SUMS)
+          cat > release-notes.md <<'NOTES'
+          # Experimental GIMP photo workspace (Linux x86_64)
+
+          This **unofficial development preview** includes the GIMP fork's fixed
+          photographic sidebar and live Light adjustments (Exposure, Contrast,
+          Highlights and Shadows), with Apply/Cancel. The default start screen
+          remains the normal GIMP interface; click **Photo workspace** in the
+          top bar to enter the photographic layout.
+
+          The pre-release is **not a complete Lightroom interface**.
+          UI interaction and long editing sessions still require real-desktop
+          validation. Back up important projects before testing.
+
+          **AppImage:** download, mark executable (`chmod +x file.AppImage`)
+          and run on a Linux x86_64 desktop.
+
+          **.deb:** intended for Debian 13 (trixie) x86_64 only; it installs
+          to `/opt/gimp-photo-dev` and launches via `gimp-photo-dev`.
+          It does not replace the distribution's GIMP package.
+
+          SHA256 checksums are attached. Source code for this build is the
+          corresponding tagged commit in this repository; GIMP's GPL applies.
+          NOTES
+      - name: Publish GitHub pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="photo-preview-${GITHUB_SHA:0:7}"
+          gh release create "$tag" release-files/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "GIMP Photo Workspace · Preview ${GITHUB_SHA:0:7}" \
+            --notes-file release-notes.md \
+            --prerelease
