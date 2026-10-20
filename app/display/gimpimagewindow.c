@@ -143,6 +143,12 @@ struct _GimpImageWindowPrivate
   GtkWidget         *notebook;
   GtkWidget         *right_docks;
 
+  /* Optional fixed photographic workspace. The regular dock hierarchy is
+   * retained, but never used for panels within this workspace. */
+  GtkWidget         *photo_toolbar;
+  GtkWidget         *photo_sidebar;
+  gboolean           photo_mode;
+
   GHashTable        *pad_controllers;
 
   GdkWindowState     window_state;
@@ -232,6 +238,10 @@ static GList   * gimp_image_window_get_aux_info        (GimpSessionManaged  *ses
 static void      gimp_image_window_set_aux_info        (GimpSessionManaged  *session_managed,
                                                         GList               *aux_info);
 
+static void      gimp_image_window_photo_mode_toggled  (GtkToggleButton     *button,
+                                                        GimpImageWindow     *window);
+static GtkWidget *gimp_image_window_photo_group_new    (const gchar         *title,
+                                                        gboolean             expanded);
 static void      gimp_image_window_config_notify       (GimpImageWindow     *window,
                                                         GParamSpec          *pspec,
                                                         GimpGuiConfig       *config);
@@ -596,6 +606,33 @@ gimp_image_window_constructed (GObject *object)
     }
 #endif
 
+  /*
+   * Keep the standard editor available. This button changes only the current
+   * window's presentation, not the user's saved dock or session layout.
+   */
+  private->photo_toolbar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_margin_start (private->photo_toolbar, 12);
+  gtk_widget_set_margin_end (private->photo_toolbar, 12);
+  gtk_widget_set_margin_top (private->photo_toolbar, 6);
+  gtk_widget_set_margin_bottom (private->photo_toolbar, 6);
+  gtk_box_pack_start (GTK_BOX (private->main_vbox),
+                      private->photo_toolbar, FALSE, FALSE, 0);
+
+  {
+    GtkWidget *title  = gtk_label_new (_("Photo editing"));
+    GtkWidget *toggle = gtk_toggle_button_new_with_label (_("Photo workspace"));
+
+    gtk_label_set_xalign (GTK_LABEL (title), 0.0);
+    gtk_box_pack_start (GTK_BOX (private->photo_toolbar),
+                        title, TRUE, TRUE, 0);
+    gtk_box_pack_end (GTK_BOX (private->photo_toolbar),
+                      toggle, FALSE, FALSE, 0);
+    g_signal_connect (toggle, "toggled",
+                      G_CALLBACK (gimp_image_window_photo_mode_toggled),
+                      window);
+  }
+  gtk_widget_show_all (private->photo_toolbar);
+
   /* Create the hbox that contains docks and images */
   private->hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_pack_start (GTK_BOX (private->main_vbox), private->hbox,
@@ -657,6 +694,52 @@ gimp_image_window_constructed (GObject *object)
   gtk_paned_pack2 (GTK_PANED (private->right_hpane), private->right_docks,
                    FALSE, FALSE);
   gtk_widget_set_visible (private->right_docks, config->single_window_mode);
+
+  /*
+   * Fixed photo sidebar: it is a normal GtkScrolledWindow, NOT a GimpDock.
+   * It therefore has no dock handle, drag target, detachable tab, or resize
+   * paned handle. Only its internal contents can scroll/collapse.
+   */
+  private->photo_sidebar = gtk_scrolled_window_new (NULL, NULL);
+  gtk_widget_set_size_request (private->photo_sidebar, 312, -1);
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (private->photo_sidebar),
+                                  GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_box_pack_end (GTK_BOX (private->hbox),
+                    private->photo_sidebar, FALSE, TRUE, 0);
+
+  {
+    GtkWidget *sections = gtk_box_new (GTK_ORIENTATION_VERTICAL, 14);
+    GtkWidget *heading  = gtk_label_new (_("Edit"));
+    GtkWidget *note     = gtk_label_new (
+      _("Fixed layout preview. Editing controls will be connected to the "
+        "existing GIMP/GEGL filters in the next implementation."));
+
+    gtk_container_set_border_width (GTK_CONTAINER (sections), 18);
+    gtk_label_set_xalign (GTK_LABEL (heading), 0.0);
+    gtk_label_set_xalign (GTK_LABEL (note), 0.0);
+    gtk_label_set_line_wrap (GTK_LABEL (note), TRUE);
+    gtk_box_pack_start (GTK_BOX (sections), heading, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sections), note, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sections),
+                        gimp_image_window_photo_group_new (_("Light"), TRUE),
+                        FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sections),
+                        gimp_image_window_photo_group_new (_("Color"), FALSE),
+                        FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sections),
+                        gimp_image_window_photo_group_new (_("Effects"), FALSE),
+                        FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sections),
+                        gimp_image_window_photo_group_new (_("Detail"), FALSE),
+                        FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sections),
+                        gimp_image_window_photo_group_new (_("Optics"), FALSE),
+                        FALSE, FALSE, 0);
+    gtk_container_add (GTK_CONTAINER (private->photo_sidebar), sections);
+  }
+  gtk_widget_show_all (private->photo_sidebar);
+  gtk_widget_hide (private->photo_sidebar);
+  gtk_widget_set_no_show_all (private->photo_sidebar, TRUE);
 
   g_signal_connect_object (config, "notify::single-window-mode",
                            G_CALLBACK (gimp_image_window_config_notify),
@@ -2143,6 +2226,48 @@ gimp_image_window_show_tooltip (GimpUIManager   *manager,
                        NULL, "%s", tooltip);
 }
 
+static GtkWidget *
+gimp_image_window_photo_group_new (const gchar *title,
+                                   gboolean     expanded)
+{
+  GtkWidget *group = gtk_expander_new (title);
+  GtkWidget *body  = gtk_label_new (_("Controls coming in a later patch"));
+
+  gtk_label_set_xalign (GTK_LABEL (body), 0.0);
+  gtk_widget_set_margin_start (body, 8);
+  gtk_widget_set_margin_top (body, 8);
+  gtk_widget_set_margin_bottom (body, 8);
+  gtk_container_add (GTK_CONTAINER (group), body);
+  gtk_expander_set_expanded (GTK_EXPANDER (group), expanded);
+
+  return group;
+}
+
+static void
+gimp_image_window_photo_mode_toggled (GtkToggleButton *button,
+                                      GimpImageWindow *window)
+{
+  GimpImageWindowPrivate *private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
+  GimpGuiConfig          *config  = GIMP_GUI_CONFIG (private->gimp->config);
+  gboolean                regular_docks;
+
+  private->photo_mode = gtk_toggle_button_get_active (button);
+  regular_docks = (config->single_window_mode &&
+                   ! config->hide_docks &&
+                   ! private->photo_mode);
+
+  if (gimp_image_window_get_active_shell (window))
+    gimp_image_window_keep_canvas_pos (window);
+
+  gtk_widget_set_visible (private->left_docks, regular_docks);
+  gtk_widget_set_visible (private->right_docks, regular_docks);
+  gtk_widget_set_visible (private->photo_sidebar, private->photo_mode);
+
+  gtk_button_set_label (GTK_BUTTON (button),
+                        private->photo_mode ? _("Standard GIMP") :
+                                              _("Photo workspace"));
+}
+
 static void
 gimp_image_window_config_notify (GimpImageWindow *window,
                                  GParamSpec      *pspec,
@@ -2160,7 +2285,8 @@ gimp_image_window_config_notify (GimpImageWindow *window,
           strcmp (pspec->name, "hide-docks")         == 0)
         {
           gboolean show_docks = (config->single_window_mode &&
-                                 ! config->hide_docks);
+                                 ! config->hide_docks &&
+                                 ! private->photo_mode);
 
           gimp_image_window_keep_canvas_pos (window);
           gtk_widget_set_visible (private->left_docks, show_docks);
